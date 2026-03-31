@@ -3,6 +3,7 @@ import os
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_community.document_loaders import PyPDFLoader
+from config.system_prompt import get_system_prompt
 
 # --- Chargement du LLM ---
 llm = ChatOllama(
@@ -19,10 +20,7 @@ print("✅ LLM chargé : Mistral")
 print("✅ Embeddings chargés : nomic-embed-text")
 
 # --- Instructions système ---
-system_message = SystemMessage(content="""
-Tu es un assistant utile et concis.
-Réponds toujours en français.
-""")
+system_message = get_system_prompt()
 
 # --- Boucle de conversation ---
 print("\n=== Chat avec Mistral (local) ===")
