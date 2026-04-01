@@ -2,13 +2,18 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 
 # ─────────────────────────────────────────────
-# Connexion à la BDD existante (lecture seule)
+# Lazy init — chargé uniquement au premier appel
 # ─────────────────────────────────────────────
-client = chromadb.PersistentClient(path="./ma_bdd_juridique")
-collection = client.get_collection(name="code_civil")
+_client = None
+_collection = None
+_modele = None
 
-# Même modèle que celui utilisé pour créer la BDD
-modele = SentenceTransformer('all-MiniLM-L6-v2')
+def _init():
+    global _client, _collection, _modele
+    if _modele is None:
+        _client = chromadb.PersistentClient(path="./ma_bdd_juridique")
+        _collection = _client.get_collection(name="code_civil")
+        _modele = SentenceTransformer('all-MiniLM-L6-v2')
 
 
 def rechercher(question: str, k: int = 4) -> list[dict]:
@@ -21,11 +26,13 @@ def rechercher(question: str, k: int = 4) -> list[dict]:
         ...
     ]
     """
+    _init()
+
     # 1. Vectoriser la question avec le même modèle
-    vecteur_question = modele.encode(question).tolist()
+    vecteur_question = _modele.encode(question).tolist()
 
     # 2. Recherche par similarité cosinus dans ChromaDB
-    resultats = collection.query(
+    resultats = _collection.query(
         query_embeddings=[vecteur_question],
         n_results=k,
         include=["documents", "metadatas", "distances"]

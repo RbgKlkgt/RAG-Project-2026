@@ -6,6 +6,7 @@ from langchain.tools import tool
 from dotenv import load_dotenv
 import os
 import time
+import httpx
 
 from config.system_prompt import get_system_prompt
 from tools.recherche_juridique import rechercher, formater_contexte
@@ -14,23 +15,18 @@ from tools.recherche_juridique import rechercher, formater_contexte
 load_dotenv()
 
 # ─────────────────────────────────────────────
-# LLM — chargé une seule fois pour toute l'app
+# Définition des loaders (sans appel immédiat)
 # ─────────────────────────────────────────────
-@st.cache_resource(show_spinner="⏳ Connexion à Mistral AI...")
+@st.cache_resource
 def charger_llm():
     return ChatMistralAI(
-        model="mistral-small-latest",
+        model="open-mistral-7b",
         temperature=0.3,
         api_key=os.getenv("MISTRAL_API_KEY"),
         streaming=True,
     )
 
-llm = charger_llm()
-
-# ─────────────────────────────────────────────
-# Tool de recherche juridique
-# ─────────────────────────────────────────────
-@st.cache_resource(show_spinner="⏳ Chargement du tool de recherche...")
+@st.cache_resource
 def charger_tool():
     @tool
     def recherche_juridique(question: str) -> str:
@@ -42,26 +38,21 @@ def charger_tool():
 
     return recherche_juridique
 
-tool_recherche = charger_tool()
-
-# ─────────────────────────────────────────────
-# Agent LangChain (nouvelle API LangGraph)
-# ─────────────────────────────────────────────
-@st.cache_resource(show_spinner="⏳ Configuration de l'agent...")
+@st.cache_resource
 def charger_agent():
+    llm = charger_llm()
+    tool_recherche = charger_tool()
     system_content = get_system_prompt().content
     return create_agent(llm, [tool_recherche], system_prompt=system_content)
-
-agent = charger_agent()
 
 # ─────────────────────────────────────────────
 # Session state
 # ─────────────────────────────────────────────
 if "historique_messages" not in st.session_state:
-    st.session_state.historique_messages = []  # liste de HumanMessage / AIMessage
+    st.session_state.historique_messages = []
 
 if "historique" not in st.session_state:
-    st.session_state.historique = []  # pour l'affichage
+    st.session_state.historique = []
 
 if "temps_responses" not in st.session_state:
     st.session_state.temps_responses = []
@@ -69,8 +60,11 @@ if "temps_responses" not in st.session_state:
 if "sources_actuelles" not in st.session_state:
     st.session_state.sources_actuelles = []
 
+if "quota_depasse" not in st.session_state:
+    st.session_state.quota_depasse = False
+
 # ─────────────────────────────────────────────
-# En-tête
+# En-tête — affiché immédiatement
 # ─────────────────────────────────────────────
 st.markdown("""
     <style>
@@ -92,6 +86,36 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
+# Bannière d'avertissement quota
+# ─────────────────────────────────────────────
+if st.session_state.quota_depasse:
+    st.error(
+        "⚠️ **Quota API Mistral dépassé.** "
+        "Les nouvelles questions sont temporairement suspendues. "
+        "Veuillez patienter que le quota soit réinitialisé (généralement dans quelques minutes), "
+        "puis cliquez sur le bouton ci-dessous pour reprendre."
+    )
+    if st.button("Réessayer"):
+        st.session_state.quota_depasse = False
+        st.rerun()
+
+# ─────────────────────────────────────────────
+# Chargement différé avec indicateur de progression
+# ─────────────────────────────────────────────
+if "pret" not in st.session_state:
+    with st.status("Initialisation de Lex-AI...", expanded=True) as status:
+        st.write("Connexion à Mistral AI...")
+        charger_llm()
+        st.write("Chargement du moteur de recherche juridique (modèle d'embeddings)...")
+        charger_tool()
+        st.write("Configuration de l'agent...")
+        charger_agent()
+        status.update(label="Lex-AI est prêt !", state="complete", expanded=False)
+    st.session_state.pret = True
+
+agent = charger_agent()
+
+# ─────────────────────────────────────────────
 # Affichage de l'historique
 # ─────────────────────────────────────────────
 for message in st.session_state.historique:
@@ -101,9 +125,12 @@ for message in st.session_state.historique:
 # ─────────────────────────────────────────────
 # Saisie utilisateur
 # ─────────────────────────────────────────────
-question = st.chat_input("Écrivez votre question juridique...")
+question = st.chat_input(
+    "Écrivez votre question juridique...",
+    disabled=st.session_state.quota_depasse,
+)
 
-if question:
+if question and not st.session_state.quota_depasse:
     # Afficher + sauvegarder la question
     st.session_state.historique.append({"role": "user", "contenu": question})
     with st.chat_message("user"):
@@ -121,21 +148,37 @@ if question:
         # Reset sources
         st.session_state.sources_actuelles = []
 
-        # Streamer via la nouvelle API LangGraph (stream_mode="messages")
-        for chunk, metadata in agent.stream(
-            {"messages": st.session_state.historique_messages},
-            stream_mode="messages",
-        ):
-            # On ne garde que les tokens texte du LLM (noeud "agent")
-            if (
-                isinstance(chunk, AIMessageChunk)
-                and isinstance(chunk.content, str)
-                and chunk.content
+        try:
+            for chunk, metadata in agent.stream(
+                {"messages": st.session_state.historique_messages},
+                stream_mode="messages",
             ):
-                reponse_complete += chunk.content
-                placeholder.markdown(reponse_complete + "▌")
+                if (
+                    isinstance(chunk, AIMessageChunk)
+                    and isinstance(chunk.content, str)
+                    and chunk.content
+                ):
+                    reponse_complete += chunk.content
+                    placeholder.markdown(reponse_complete + "▌")
 
-        placeholder.markdown(reponse_complete)
+            placeholder.markdown(reponse_complete)
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                st.session_state.quota_depasse = True
+                placeholder.warning(
+                    "⚠️ Quota API Mistral dépassé. "
+                    "Impossible de répondre pour l'instant. "
+                    "Le quota se réinitialise généralement en quelques minutes."
+                )
+                reponse_complete = "⚠️ Quota API dépassé — réponse indisponible."
+            else:
+                placeholder.error(f"Erreur API ({e.response.status_code}) : {e}")
+                reponse_complete = f"Erreur API : {e}"
+
+        except Exception as e:
+            placeholder.error(f"Erreur inattendue : {e}")
+            reponse_complete = f"Erreur : {e}"
 
     fin = time.time()
     temps_echange = fin - debut
@@ -152,6 +195,10 @@ if question:
                 st.write(f"**Extrait {i}** — {source['source']} (pertinence: {source['score']})")
                 st.write(source['texte'])
                 st.markdown("---")
+
+    # Rerun pour afficher la bannière quota si nécessaire
+    if st.session_state.quota_depasse:
+        st.rerun()
 
 # ─────────────────────────────────────────────
 # Statistiques de performance
