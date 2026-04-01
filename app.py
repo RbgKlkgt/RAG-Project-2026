@@ -7,12 +7,32 @@ from dotenv import load_dotenv
 import os
 import time
 import httpx
+import io
+from pypdf import PdfReader
+from docx import Document
 
 from config.system_prompt import get_system_prompt
 from tools.recherche_juridique import rechercher, formater_contexte
 
 
 load_dotenv()
+
+FORMATS_ACCEPTES = ["txt", "pdf", "docx"]
+
+# ─────────────────────────────────────────────
+# Extraction de texte selon le format
+# ─────────────────────────────────────────────
+def extraire_texte(fichier) -> str:
+    ext = fichier.name.rsplit(".", 1)[-1].lower()
+    if ext == "txt":
+        return fichier.read().decode("utf-8", errors="ignore")
+    elif ext == "pdf":
+        reader = PdfReader(io.BytesIO(fichier.read()))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    elif ext == "docx":
+        doc = Document(io.BytesIO(fichier.read()))
+        return "\n".join(p.text for p in doc.paragraphs)
+    return ""
 
 # ─────────────────────────────────────────────
 # Définition des loaders (sans appel immédiat)
@@ -62,6 +82,9 @@ if "sources_actuelles" not in st.session_state:
 
 if "quota_depasse" not in st.session_state:
     st.session_state.quota_depasse = False
+
+if "fichier_joint" not in st.session_state:
+    st.session_state.fichier_joint = None  # {"nom": str, "texte": str}
 
 # ─────────────────────────────────────────────
 # En-tête — affiché immédiatement
@@ -123,21 +146,65 @@ for message in st.session_state.historique:
         st.markdown(message["contenu"])
 
 # ─────────────────────────────────────────────
-# Saisie utilisateur
+# Badge fichier joint + upload + saisie
 # ─────────────────────────────────────────────
+
+# Badge avec croix si un fichier est déjà chargé
+if st.session_state.fichier_joint:
+    col_nom, col_croix = st.columns([8, 1])
+    with col_nom:
+        st.markdown(f"📎 **{st.session_state.fichier_joint['nom']}**")
+    with col_croix:
+        if st.button("✕", key="suppr_fichier", help="Supprimer le fichier"):
+            st.session_state.fichier_joint = None
+            st.rerun()
+
+# Zone de drag & drop (masquée si un fichier est déjà présent)
+if not st.session_state.fichier_joint:
+    fichier_uploade = st.file_uploader(
+        "Déposer un fichier",
+        type=FORMATS_ACCEPTES,
+        label_visibility="collapsed",
+    )
+    if fichier_uploade:
+        texte = extraire_texte(fichier_uploade)
+        st.session_state.fichier_joint = {
+            "nom": fichier_uploade.name,
+            "texte": texte,
+        }
+        st.rerun()
+
+# Barre de saisie
 question = st.chat_input(
     "Écrivez votre question juridique...",
     disabled=st.session_state.quota_depasse,
 )
 
 if question and not st.session_state.quota_depasse:
+    # Construire le contenu du message
+    if st.session_state.fichier_joint:
+        contenu_message = (
+            f"Voici le contenu d'un document joint par l'utilisateur :\n\n"
+            f"--- DÉBUT DU DOCUMENT : {st.session_state.fichier_joint['nom']} ---\n"
+            f"{st.session_state.fichier_joint['texte']}\n"
+            f"--- FIN DU DOCUMENT ---\n\n"
+            f"Question de l'utilisateur : {question}"
+        )
+        label_historique = f"📎 *{st.session_state.fichier_joint['nom']}*\n\n{question}"
+    else:
+        contenu_message = question
+        label_historique = question
+
     # Afficher + sauvegarder la question
-    st.session_state.historique.append({"role": "user", "contenu": question})
+    st.session_state.historique.append({"role": "user", "contenu": label_historique})
     with st.chat_message("user"):
-        st.markdown(question)
+        st.markdown(label_historique)
 
     # Ajouter au contexte LangChain
-    st.session_state.historique_messages.append(HumanMessage(content=question))
+    st.session_state.historique_messages.append(HumanMessage(content=contenu_message))
+
+    # Vider le fichier joint après envoi
+    st.session_state.fichier_joint = None
 
     # ── Streaming de la réponse avec l'agent ──────────────────
     debut = time.time()
@@ -145,7 +212,6 @@ if question and not st.session_state.quota_depasse:
         placeholder = st.empty()
         reponse_complete = ""
 
-        # Reset sources
         st.session_state.sources_actuelles = []
 
         try:
@@ -183,12 +249,10 @@ if question and not st.session_state.quota_depasse:
     fin = time.time()
     temps_echange = fin - debut
 
-    # Sauvegarder la réponse
     st.session_state.historique_messages.append(AIMessage(content=reponse_complete))
     st.session_state.historique.append({"role": "assistant", "contenu": reponse_complete})
     st.session_state.temps_responses.append(temps_echange)
 
-    # ── Afficher les sources utilisées ──────────────────
     if st.session_state.sources_actuelles:
         with st.expander("📚 Sources utilisées"):
             for i, source in enumerate(st.session_state.sources_actuelles, 1):
@@ -196,7 +260,6 @@ if question and not st.session_state.quota_depasse:
                 st.write(source['texte'])
                 st.markdown("---")
 
-    # Rerun pour afficher la bannière quota si nécessaire
     if st.session_state.quota_depasse:
         st.rerun()
 
