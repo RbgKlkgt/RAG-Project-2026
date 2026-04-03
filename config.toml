@@ -1,5 +1,0 @@
-[browser]
-serverAddress = "localhost"
-
-[server]
-headless = false

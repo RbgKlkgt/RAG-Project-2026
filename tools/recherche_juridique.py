@@ -1,5 +1,8 @@
+import os
 import chromadb
 from sentence_transformers import SentenceTransformer
+
+_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vector_store")
 
 # ─────────────────────────────────────────────
 # Lazy init — chargé uniquement au premier appel
@@ -11,7 +14,7 @@ _modele = None
 def _init():
     global _client, _collection, _modele
     if _modele is None:
-        _client = chromadb.PersistentClient(path="./ma_bdd_juridique")
+        _client = chromadb.PersistentClient(path=_DB_PATH)
         _collection = _client.get_collection(name="code_civil")
         _modele = SentenceTransformer('all-MiniLM-L6-v2')
 
