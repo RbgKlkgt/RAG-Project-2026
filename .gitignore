@@ -1,4 +1,5 @@
 data/
 vector_store/
+light_vector_store/
 .env
-__pycache__
+__pycache__/

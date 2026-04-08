@@ -4,24 +4,34 @@ from sentence_transformers import SentenceTransformer
 
 _DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vector_store")
 
+COLLECTIONS_DISPONIBLES = {
+    "code_civil": "Code_civil_1_373",
+    "code_impots": "Code_general_des_impots_1_373",
+}
+
 # ─────────────────────────────────────────────
 # Lazy init — chargé uniquement au premier appel
 # ─────────────────────────────────────────────
 _client = None
-_collection = None
+_collections: dict = {}
 _modele = None
 
 def _init():
-    global _client, _collection, _modele
+    global _client, _collections, _modele
     if _modele is None:
         _client = chromadb.PersistentClient(path=_DB_PATH)
-        _collection = _client.get_collection(name="code_civil")
+        _collections = {
+            key: _client.get_collection(name=name)
+            for key, name in COLLECTIONS_DISPONIBLES.items()
+        }
         _modele = SentenceTransformer('all-MiniLM-L6-v2')
 
 
-def rechercher(question: str, k: int = 4) -> list[dict]:
+def rechercher(question: str, collection: str, k: int = 4) -> list[dict]:
     """
     Vectorise la question et retourne les k chunks les plus pertinents.
+
+    collection : "code_civil" ou "code_impots"
 
     Retourne une liste de dicts :
     [
@@ -31,11 +41,14 @@ def rechercher(question: str, k: int = 4) -> list[dict]:
     """
     _init()
 
+    if collection not in _collections:
+        raise ValueError(f"Collection inconnue : '{collection}'. Valeurs acceptées : {list(_collections.keys())}")
+
     # 1. Vectoriser la question avec le même modèle
     vecteur_question = _modele.encode(question).tolist()
 
     # 2. Recherche par similarité cosinus dans ChromaDB
-    resultats = _collection.query(
+    resultats = _collections[collection].query(
         query_embeddings=[vecteur_question],
         n_results=k,
         include=["documents", "metadatas", "distances"]

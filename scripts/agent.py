@@ -1,43 +1,63 @@
 import sys
 import os
+import warnings
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+warnings.filterwarnings("ignore", message=".*Pydantic V1.*")
+
 import time
-from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_community.document_loaders import PyPDFLoader
+
+# ─────────────────────────────────────────────
+# Chargement avec indicateur de progression
+# ─────────────────────────────────────────────
+print("\n=== Initialisation de Lex-AI (local) ===")
+debut_total = time.time()
+
+print("⏳ [1/2] Connexion au LLM Mistral (Ollama)...")
+t = time.time()
+from langchain_ollama import ChatOllama
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from config.system_prompt import get_system_prompt
+from tools.recherche_juridique import rechercher, formater_contexte
 
-# --- Chargement du LLM ---
-llm = ChatOllama(
-    model="mistral",
-    temperature=0.3,
-)
+@tool
+def recherche_juridique(question: str, collection: str) -> str:
+    """Recherche dans la base documentaire juridique RAG.
 
-# --- Chargement du modèle d'embeddings ---
-embeddings = OllamaEmbeddings(
-    model="nomic-embed-text",
-)
+    Paramètres :
+    - question : la question juridique à rechercher
+    - collection : la base à interroger.
+      Valeurs acceptées :
+        "code_civil"    → droit civil (contrats, obligations, famille, successions, propriété)
+        "code_impots"   → fiscalité (IR, TVA, IS, plus-values, exonérations fiscales)
+    """
+    chunks = rechercher(question, collection)
+    return formater_contexte(chunks)
 
-print("✅ LLM chargé : Mistral")
-print("✅ Embeddings chargés : nomic-embed-text")
+llm_base = ChatOllama(model="mistral", temperature=0.3)
+llm = llm_base.bind_tools([recherche_juridique])
+print(f"✅ [1/2] LLM Mistral prêt ({time.time() - t:.1f}s)")
 
-# --- Instructions système ---
+print("⏳ [2/2] Chargement du prompt système...")
+t = time.time()
 system_message = get_system_prompt()
+print(f"✅ [2/2] Prompt système chargé ({time.time() - t:.1f}s)")
 
-# --- Boucle de conversation ---
+print(f"\nLex-AI est prêt ! (chargement total : {time.time() - debut_total:.1f}s)")
+
+# ─────────────────────────────────────────────
+# Boucle de conversation
+# ─────────────────────────────────────────────
 print("\n=== Chat avec Mistral (local) ===")
 print("  • 'exit'           → quitter\n")
 
 historique = [system_message]
 temps_responses = []
-document_actif = None      # Texte du PDF chargé
-document_nom = None        # Nom du fichier chargé
 
 while True:
     user_input = input("Toi : ").strip()
 
-    # --- Commande : exit ---
     if user_input.lower() == "exit":
         if temps_responses:
             moyenne = sum(temps_responses) / len(temps_responses)
@@ -49,21 +69,29 @@ while True:
         print("\nAu revoir !")
         break
 
-   
     if not user_input:
         continue
 
-    # --- Envoi du message à Mistral ---
     historique.append(HumanMessage(content=user_input))
 
     debut = time.time()
-    response = llm.invoke(historique)
-    fin = time.time()
 
+    # Boucle d'appel d'outils
+    while True:
+        response = llm.invoke(historique)
+        historique.append(response)
+
+        if not response.tool_calls:
+            break
+
+        for tool_call in response.tool_calls:
+            print(f"  [outil] {tool_call['name']}({tool_call['args']})")
+            resultat = recherche_juridique.invoke(tool_call)
+            historique.append(ToolMessage(content=resultat, tool_call_id=tool_call["id"]))
+
+    fin = time.time()
     temps_echange = fin - debut
     temps_responses.append(temps_echange)
-
-    historique.append(AIMessage(content=response.content))
 
     moyenne_courante = sum(temps_responses) / len(temps_responses)
 

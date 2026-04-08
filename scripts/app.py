@@ -11,31 +11,11 @@ from dotenv import load_dotenv
 import os
 import time
 import httpx
-# import io
-# from pypdf import PdfReader
-# from docx import Document
 
 from config.system_prompt import get_system_prompt
 
 
 load_dotenv()
-
-# FORMATS_ACCEPTES = ["txt", "pdf", "docx"]
-
-# ─────────────────────────────────────────────
-# Extraction de texte selon le format
-# ─────────────────────────────────────────────
-# def extraire_texte(fichier) -> str:
-#     ext = fichier.name.rsplit(".", 1)[-1].lower()
-#     if ext == "txt":
-#         return fichier.read().decode("utf-8", errors="ignore")
-#     elif ext == "pdf":
-#         reader = PdfReader(io.BytesIO(fichier.read()))
-#         return "\n".join(page.extract_text() or "" for page in reader.pages)
-#     elif ext == "docx":
-#         doc = Document(io.BytesIO(fichier.read()))
-#         return "\n".join(p.text for p in doc.paragraphs)
-#     return ""
 
 # ─────────────────────────────────────────────
 # Définition des loaders (sans appel immédiat)
@@ -54,9 +34,17 @@ def charger_tool():
     from tools.recherche_juridique import rechercher, formater_contexte
 
     @tool
-    def recherche_juridique(question: str) -> str:
-        """Recherche dans la base de données juridique pour répondre à des questions légales."""
-        chunks = rechercher(question)
+    def recherche_juridique(question: str, collection: str) -> str:
+        """Recherche dans la base documentaire juridique RAG.
+
+        Paramètres :
+        - question : la question juridique à rechercher
+        - collection : la base à interroger.
+          Valeurs acceptées :
+            "code_civil"    → droit civil (contrats, obligations, famille, successions, propriété)
+            "code_impots"   → fiscalité (IR, TVA, IS, plus-values, exonérations fiscales)
+        """
+        chunks = rechercher(question, collection)
         contexte = formater_contexte(chunks)
         st.session_state.sources_actuelles = chunks
         return contexte
@@ -87,9 +75,6 @@ if "sources_actuelles" not in st.session_state:
 
 if "quota_depasse" not in st.session_state:
     st.session_state.quota_depasse = False
-
-# if "fichier_joint" not in st.session_state:
-#     st.session_state.fichier_joint = None  # {"nom": str, "texte": str}
 
 # ─────────────────────────────────────────────
 # En-tête — affiché immédiatement
@@ -142,20 +127,20 @@ if "pret" not in st.session_state:
         charger_llm()
         st.write(f"✅ Mistral AI connecté ({time.time() - t:.1f}s)")
 
-        barre.progress(25, text="Étape 2/4 — Chargement des modules juridiques...")
-        st.write("⏳ Chargement des modules juridiques...")
+        barre.progress(25, text="Étape 2/4 — Chargement de l'outil de recherche juridique...")
+        st.write("⏳ Chargement de l'outil de recherche juridique...")
         time.sleep(0.05)
         t = time.time()
         charger_tool()
-        st.write(f"✅ Modules juridiques chargés ({time.time() - t:.1f}s)")
+        st.write(f"✅ Outil de recherche juridique chargé ({time.time() - t:.1f}s)")
 
-        barre.progress(50, text="Étape 3/4 — Préchauffage du moteur de recherche...")
-        st.write("⏳ Préchauffage du moteur de recherche (modèle d'embeddings)...")
+        barre.progress(50, text="Étape 3/4 — Chargement du modèle d'embeddings et connexion à la base vectorielle...")
+        st.write("⏳ Chargement du modèle d'embeddings et connexion à la base vectorielle...")
         time.sleep(0.05)
         t = time.time()
         from tools.recherche_juridique import rechercher as _prewarm
         _prewarm("initialisation")
-        st.write(f"✅ Moteur de recherche prêt ({time.time() - t:.1f}s)")
+        st.write(f"✅ Modèle d'embeddings chargé, base vectorielle connectée ({time.time() - t:.1f}s)")
 
         barre.progress(80, text="Étape 4/4 — Configuration de l'agent...")
         st.write("⏳ Configuration de l'agent...")
@@ -179,65 +164,22 @@ for message in st.session_state.historique:
         st.markdown(message["contenu"])
 
 # ─────────────────────────────────────────────
-# Badge fichier joint + upload + saisie
+# Saisie
 # ─────────────────────────────────────────────
-
-# # Badge avec croix si un fichier est déjà chargé
-# if st.session_state.fichier_joint:
-#     col_nom, col_croix = st.columns([8, 1])
-#     with col_nom:
-#         st.markdown(f"📎 **{st.session_state.fichier_joint['nom']}**")
-#     with col_croix:
-#         if st.button("✕", key="suppr_fichier", help="Supprimer le fichier"):
-#             st.session_state.fichier_joint = None
-#             st.rerun()
-
-# # Zone de drag & drop (masquée si un fichier est déjà présent)
-# if not st.session_state.fichier_joint:
-#     fichier_uploade = st.file_uploader(
-#         "Déposer un fichier",
-#         type=FORMATS_ACCEPTES,
-#         label_visibility="collapsed",
-#     )
-#     if fichier_uploade:
-#         texte = extraire_texte(fichier_uploade)
-#         st.session_state.fichier_joint = {
-#             "nom": fichier_uploade.name,
-#             "texte": texte,
-#         }
-#         st.rerun()
-
-# Barre de saisie
 question = st.chat_input(
     "Écrivez votre question juridique...",
     disabled=st.session_state.quota_depasse,
 )
 
 if question and not st.session_state.quota_depasse:
-    # Construire le contenu du message
-    # if st.session_state.fichier_joint:
-    #     contenu_message = (
-    #         f"Voici le contenu d'un document joint par l'utilisateur :\n\n"
-    #         f"--- DÉBUT DU DOCUMENT : {st.session_state.fichier_joint['nom']} ---\n"
-    #         f"{st.session_state.fichier_joint['texte']}\n"
-    #         f"--- FIN DU DOCUMENT ---\n\n"
-    #         f"Question de l'utilisateur : {question}"
-    #     )
-    #     label_historique = f"📎 *{st.session_state.fichier_joint['nom']}*\n\n{question}"
-    # else:
     contenu_message = question
     label_historique = question
 
-    # Afficher + sauvegarder la question
     st.session_state.historique.append({"role": "user", "contenu": label_historique})
     with st.chat_message("user"):
         st.markdown(label_historique)
 
-    # Ajouter au contexte LangChain
     st.session_state.historique_messages.append(HumanMessage(content=contenu_message))
-
-    # # Vider le fichier joint après envoi
-    # st.session_state.fichier_joint = None
 
     # ── Streaming de la réponse avec l'agent ──────────────────
     debut = time.time()
