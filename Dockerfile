@@ -4,6 +4,7 @@ FROM python:3.11-slim
 # 2. Outils système nécessaires pour installer Ollama
 RUN apt-get update && apt-get install -y \
     curl \
+    zstd \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. Installation d'Ollama
