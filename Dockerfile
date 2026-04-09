@@ -17,7 +17,7 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 WORKDIR /app
 
 # 5. Installation des dépendances Python
-COPY pyproject.toml .
+COPY pyproject.docker.toml pyproject.toml
 # Install CPU-only torch first to avoid downloading the huge CUDA version
 RUN uv pip install --system --no-cache torch --index-url https://download.pytorch.org/whl/cpu
 RUN uv pip install --system --no-cache .
