@@ -7,6 +7,9 @@ RUN apt-get update && apt-get install -y \
     zstd \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv (fast Python package manager)
+RUN pip install --no-cache-dir uv
+
 # 3. Installation d'Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
@@ -15,7 +18,9 @@ WORKDIR /app
 
 # 5. Installation des dépendances Python
 COPY pyproject.toml .
-RUN pip install --no-cache-dir .
+# Install CPU-only torch first to avoid downloading the huge CUDA version
+RUN uv pip install --system --no-cache torch --index-url https://download.pytorch.org/whl/cpu
+RUN uv pip install --system --no-cache .
 
 # 6. Copie du code de l'app
 COPY . .
