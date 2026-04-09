@@ -1,8 +1,15 @@
 import os
 import chromadb
 from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
 
-_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vector_store")
+load_dotenv()
+
+_VECTOR_STORE = os.getenv("VECTOR_STORE_PATH")
+if not _VECTOR_STORE:
+    raise EnvironmentError("La variable VECTOR_STORE_PATH n'est pas définie dans .env")
+
+_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), _VECTOR_STORE)
 
 COLLECTIONS_DISPONIBLES = {
     "code_civil": "Code_civil_1_373",

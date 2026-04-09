@@ -13,13 +13,18 @@ import time
 print("\n=== Initialisation de Lex-AI (local) ===")
 debut_total = time.time()
 
-print("⏳ [1/2] Connexion au LLM Mistral (Ollama)...")
+print("⏳ [1/5] Chargement des librairies...")
 t = time.time()
 from langchain_ollama import ChatOllama
 from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage,ToolMessage
+# from langchain_core.messages import  AIMessage
 from config.system_prompt import get_system_prompt
-from tools.recherche_juridique import rechercher, formater_contexte
+from tools.recherche_juridique_rag import rechercher, formater_contexte
+print(f"✅ [1/5] Librairies chargées ({time.time() - t:.1f}s)")
+
+print("⏳ [2/5] Chargement du tool RAG...")
+t = time.time()
 
 @tool
 def recherche_juridique(question: str, collection: str) -> str:
@@ -35,14 +40,23 @@ def recherche_juridique(question: str, collection: str) -> str:
     chunks = rechercher(question, collection)
     return formater_contexte(chunks)
 
+print(f"✅ [2/5] Tool RAG chargé ({time.time() - t:.1f}s)")
+
+print("⏳ [3/5] Chargement du modèle Mistral (Ollama)...")
+t = time.time()
 llm_base = ChatOllama(model="mistral", temperature=0.3)
 llm = llm_base.bind_tools([recherche_juridique])
-print(f"✅ [1/2] LLM Mistral prêt ({time.time() - t:.1f}s)")
+print(f"✅ [3/5] Modèle Mistral chargé ({time.time() - t:.1f}s)")
 
-print("⏳ [2/2] Chargement du prompt système...")
+print("⏳ [4/5] Chargement du prompt système...")
 t = time.time()
 system_message = get_system_prompt()
-print(f"✅ [2/2] Prompt système chargé ({time.time() - t:.1f}s)")
+print(f"✅ [4/5] Prompt système chargé ({time.time() - t:.1f}s)")
+
+print("⏳ [5/5] Connexion à la base vectorielle...")
+t = time.time()
+rechercher("initialisation", "code_civil")
+print(f"✅ [5/5] Modèle d'embeddings chargé, base vectorielle connectée ({time.time() - t:.1f}s)")
 
 print(f"\nLex-AI est prêt ! (chargement total : {time.time() - debut_total:.1f}s)")
 
