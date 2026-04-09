@@ -44,7 +44,9 @@ print(f"✅ [2/5] Tool RAG chargé ({time.time() - t:.1f}s)")
 
 print("⏳ [3/5] Chargement du modèle Mistral (Ollama)...")
 t = time.time()
-llm_base = ChatOllama(model="mistral", temperature=0.3)
+from dotenv import load_dotenv
+load_dotenv("config.env")
+llm_base = ChatOllama(model=os.getenv("OLLAMA_MODEL"), temperature=0.3)
 llm = llm_base.bind_tools([recherche_juridique])
 print(f"✅ [3/5] Modèle Mistral chargé ({time.time() - t:.1f}s)")
 

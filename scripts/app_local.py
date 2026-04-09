@@ -45,7 +45,10 @@ def charger_tool():
 def charger_llm():
     from langchain_ollama import ChatOllama
     tool_recherche = charger_tool()
-    llm_base = ChatOllama(model="mistral", temperature=0.3)
+    import os
+    from dotenv import load_dotenv
+    load_dotenv("config.env")
+    llm_base = ChatOllama(model=os.getenv("OLLAMA_MODEL"), temperature=0.3)
     return llm_base.bind_tools([tool_recherche])
 
 @st.cache_resource

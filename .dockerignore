@@ -1,0 +1,23 @@
+# Environnement virtuel Python
+.venv/
+
+# Données brutes (non nécessaires au fonctionnement)
+data/
+
+# Secrets
+.env
+
+# Notebook de développement
+notebook/
+
+# Cache Python
+__pycache__/
+**/__pycache__/
+**/*.pyc
+
+# Git
+.git/
+.gitignore
+
+# Base vectorielle complète (on embarque uniquement light_vector_store)
+vector_store/

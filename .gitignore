@@ -2,4 +2,8 @@ data/
 vector_store/
 light_vector_store/
 .env
+.venv/
+notebook/
 __pycache__/
+**/__pycache__/
+**/*.pyc

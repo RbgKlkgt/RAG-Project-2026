@@ -3,7 +3,8 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv("config.env")
+load_dotenv(".env")
 
 _VECTOR_STORE = os.getenv("VECTOR_STORE_PATH")
 if not _VECTOR_STORE:

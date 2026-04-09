@@ -15,7 +15,8 @@ import httpx
 from config.system_prompt import get_system_prompt
 
 
-load_dotenv()
+load_dotenv("config.env")
+load_dotenv(".env")
 
 # ─────────────────────────────────────────────
 # Définition des loaders (sans appel immédiat)
@@ -23,7 +24,7 @@ load_dotenv()
 @st.cache_resource
 def charger_llm():
     return ChatMistralAI(
-        model="open-mistral-7b",
+        model=os.getenv("MISTRAL_API_MODEL"),
         temperature=0.3,
         api_key=os.getenv("MISTRAL_API_KEY"),
         streaming=True,
